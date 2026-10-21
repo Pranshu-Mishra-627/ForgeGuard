@@ -1,1 +1,126 @@
-# ForgeGuard
+# ForgeGuard — Maintenance Shift Planner
+
+## Person 2: Decision Engine Documentation
+
+This repository implements the **Decision Engine** for NexAI Hack 2026 Problem Statement 2.1 (*Maintenance Shift Planner*). It is responsible for cost modeling, validation-based threshold optimization, and priority-based technician capacity scheduling.
+
+---
+
+## 1. Architecture & Module Structure
+
+```
+ForgeGuard/
+├── engine/
+│   ├── __init__.py           # Exports public API (plan_shift, choose_threshold, calculate_cost, CostConfig)
+│   ├── cost_model.py         # Cost parameter configuration and evaluation
+│   ├── threshold.py          # Validation-based threshold grid search & cost curve calculation
+│   └── scheduler.py          # Alert filtering, priority scoring, and capacity-constrained dispatching
+├── tests/
+│   ├── __init__.py
+│   ├── test_cost_model.py    # Unit tests for cost model and threshold optimization
+│   └── test_scheduler.py     # Unit tests for scheduler, capacity constraints, and edge cases
+└── README.md
+```
+
+---
+
+## 2. Decision Logic & Formulas
+
+### Relative Cost Model (`engine/cost_model.py`)
+- **Formula**: `total_cost = (false_negative_cost * FN) + (false_positive_cost * FP)`
+- **Default Relative Costs**:
+  - `false_negative_cost = 20.0` (Missed failure penalty)
+  - `false_positive_cost = 1.0` (False alarm dispatch penalty)
+- *Note*: Costs are relative operational penalty units, not raw currency. Both parameters are independently configurable.
+
+### Threshold Selection (`engine/threshold.py`)
+- Evaluates candidate thresholds across a fixed, documented 101-point grid from `0.00` to `1.00` (step `0.01`).
+- Predicts failure when `probability >= threshold`.
+- Computes TP, TN, FP, FN, and total operational cost at each grid point.
+- **Tie-Breaking Rule**: When multiple candidate thresholds achieve the identical minimum total cost, the **highest threshold** is selected. This minimizes false alarms and dispatch fatigue for maintenance crews without increasing operational cost.
+
+### Shift Scheduler (`engine/scheduler.py`)
+- **Alert Rule**: A machine triggers an alert if `failure_probability >= threshold`.
+- **Priority Scoring**: `priority_score = failure_probability * false_negative_cost`.
+- **Alert Ranking**: Alerted machines are ranked by descending priority score.
+- **Tie-Breaking Rule**: When priority scores are tied, ties are broken deterministically by sorting machine identifiers in **ascending alphanumeric order** (`'M-001'` before `'M-002'`).
+- **Slot Allocation**: Technicians are assigned to at most `slots` highest-priority alerted machines. Non-alerted machines are never assigned. If fewer alerts exist than slots, remaining slots remain unassigned.
+- **Explanations**: Every machine receives an explicit explanation justifying whether it was selected, deferred due to limited technician capacity, or not alerted.
+
+---
+
+## 3. Integration Interface & Schemas
+
+### Upstream (Person 1 → Person 2)
+Person 1 supplies:
+- Validation ground-truth binary labels: `y_val: Iterable[int]` (values in `{0, 1}`)
+- Validation failure probabilities: `p_val: Iterable[float]` (values in `[0.0, 1.0]`)
+- Fleet machine records: `df: pd.DataFrame` containing `machine_id` (or custom column) and operational failure probabilities.
+
+### Downstream (Person 2 → Person 3)
+Person 3 consumes:
+1. **Threshold Optimization Result** (`ThresholdResult`):
+   - `.threshold`: Selected optimal alert threshold (`float`).
+   - `.min_cost`: Minimum total cost achieved (`float`).
+   - `.cost_curve`: Full evaluation curve (`pd.DataFrame` with columns: `['threshold', 'tp', 'tn', 'fp', 'fn', 'total_cost', 'fn_cost', 'fp_cost']`).
+   - `.confusion_matrix`: Dictionary with confusion counts `{'tp': int, 'tn': int, 'fp': int, 'fn': int}`.
+
+2. **Shift Schedule Result** (`ScheduleResult`):
+   - `.selected_machines`: List of machine IDs selected for service (in priority order).
+   - `.deferred_machines`: List of alerted machine IDs deferred due to capacity (in priority order).
+   - `.alert_status`: Mapping `{machine_id: bool}`.
+   - `.selection_reasons`: Mapping `{machine_id: str}`.
+   - `.schedule_table`: Complete decision table (`pd.DataFrame`) with columns:
+     - `machine_id`: Stable machine identifier.
+     - `failure_probability`: Machine failure probability in `[0.0, 1.0]`.
+     - `alert`: Boolean indicator (`probability >= threshold`).
+     - `priority_score`: Expected failure impact score.
+     - `selected_for_service`: Boolean dispatch flag.
+     - `reason`: Explicit operational explanation.
+
+---
+
+## 4. Quickstart Example
+
+```python
+import pandas as pd
+from engine import choose_threshold, plan_shift, CostConfig
+
+# 1. Validation data (from Person 1)
+y_val = [0, 0, 0, 0, 1, 0, 1, 1, 1, 1]
+p_val = [0.12, 0.25, 0.30, 0.42, 0.48, 0.52, 0.68, 0.74, 0.88, 0.95]
+
+# 2. Select optimal threshold
+thresh_res = choose_threshold(y_true=y_val, probabilities=p_val)
+print(f"Optimal threshold: {thresh_res.threshold} (min cost: {thresh_res.min_cost})")
+
+# 3. Operational fleet scheduling
+fleet_df = pd.DataFrame({
+    "machine_id": ["CNC-01", "CNC-02", "CNC-03", "PRESS-01", "ROBOT-01"],
+    "location": ["Bay-A", "Bay-A", "Bay-B", "Bay-B", "Bay-C"],
+})
+fleet_probs = [0.92, 0.78, 0.55, 0.51, 0.35]
+technician_slots = 3
+
+plan = plan_shift(
+    df=fleet_df,
+    probabilities=fleet_probs,
+    slots=technician_slots,
+    threshold=thresh_res.threshold,
+)
+
+# 4. Inspect results (for Person 3 Dashboard)
+print("Selected machines:", plan.selected_machines)
+print("Deferred alerts:", plan.deferred_machines)
+print(plan.schedule_table[["machine_id", "alert", "selected_for_service", "reason"]])
+```
+
+---
+
+## 5. Running Tests
+
+Run all unit tests with pytest from the project root:
+
+```bash
+pytest -v
+```
