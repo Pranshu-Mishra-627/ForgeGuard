@@ -1,0 +1,351 @@
+================================================================================
+FORGEGUARD DECISION ENGINE (PERSON 2) -- COMPLETE ARCHITECTURAL & API SUMMARY
+================================================================================
+Generated: 2026-10-22
+Repository: ForgeGuard Decision Engine
+Platform: Python 3.10+ / Pandas / NumPy / Pytest (188 Passing Unit Tests)
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY: WHAT THE WHOLE ENGINE DOES
+--------------------------------------------------------------------------------
+The ForgeGuard Decision Engine is an industrial maintenance optimization and
+dispatch-governance system. It bridges Person 1's Machine Learning failure
+prediction models and Person 3's Operations Dashboard / Field Technicians.
+
+Rather than relying on uncalibrated defaults (such as arbitrary 0.50 alert
+thresholds or unconstrained dispatch queues), the engine:
+  1. Optimizes alert thresholds based on true operational cost penalties
+     (False Negatives vs False Positives).
+  2. Dispatches technicians strictly within shift capacity, prioritizing
+     assets by expected failure impact and deferring excess backlog.
+  3. Quantifies executive business savings and confusion count deltas.
+  4. Manages deferred risk using tiered severity and escalation queues.
+  5. Schedules multi-shift rosters with carry-forward carryover logic.
+  6. Enforces maintenance policy guardrails (mandatory review, deferral ceilings).
+  7. Audits physical equipment safety in real time using telemetry rules.
+  8. Evaluates preemption to safely pause active work for emergency breakdowns.
+
+
+--------------------------------------------------------------------------------
+2. INGESTED ENDPOINTS & INPUTS: WHAT IT TAKES
+--------------------------------------------------------------------------------
+
+A. Upstream Machine Learning & Telemetry Inputs (from Person 1 / IoT Sensors):
+   * telemetry_df (pandas.DataFrame)
+     - Raw sensor readings: ['machine_id', 'vibration_rms', 'temperature_c',
+       'factory_line', timestamps].
+   * y_val (Iterable[int])
+     - Validation ground-truth binary labels (0 = healthy, 1 = failure).
+   * p_val (Iterable[float])
+     - Validation failure probabilities in range [0.0, 1.0].
+   * predictions_df (pandas.DataFrame)
+     - Output of Person 1's predict_machines(): ['machine_id',
+       'failure_probability', 'predicted_failure_mode', 'maintenance_alert'].
+   * safety_context (MachineTelemetryContext or dict)
+     - Real-time physical context: ['telemetry_signals', 'timestamp',
+       'current_time', 'redundant_signals', 'active_hazards',
+       'is_reversible_stage', 'maintenance_stage'].
+
+B. Operational & Business Configurations (from Plant Management / Dispatch):
+   * CostConfig:
+     - false_negative_cost (float, default: 20.0) -> Cost of missed breakdown.
+     - false_positive_cost (float, default: 1.0)  -> Cost of false alarm dispatch.
+   * slots (int, default: 3):
+     - Total concurrent technician capacity available for dispatch.
+   * MonetaryConfig:
+     - monetary_value_per_unit (float) -> Dollar value per penalty unit.
+     - currency (str, default: 'USD')  -> Reporting currency.
+   * RiskTierConfig:
+     - critical_threshold (float: 0.85), high_threshold (0.65), medium (0.40).
+   * shifts (Sequence[ShiftConfig]):
+     - shift_id (str), technician_capacity (int), shift_type, date.
+   * MaintenancePolicyConfig:
+     - mandatory_review_critical (bool: True), max_consecutive_deferrals (int: 2),
+       escalate_critical_deferred (bool: True), escalate_high_deferred (True).
+   * PreemptionConfig:
+     - enabled (bool), min_priority_delta (float), allowed_alert_categories,
+       require_human_approval (bool), allow_unknown_interruptibility (bool).
+   * EquipmentSafetyConfig:
+     - rules (tuple of EquipmentSafetyRule), required_signals,
+       max_telemetry_age_seconds (float: 300.0s), max_signal_discrepancy.
+
+
+--------------------------------------------------------------------------------
+3. DELIVERED ENDPOINTS & OUTPUTS: WHAT IT GIVES
+--------------------------------------------------------------------------------
+
+A. Optimization & Analytics Outputs (for Person 3 Streamlit Dashboard):
+   * ThresholdResult:
+     - optimal_threshold (float) -> Cost-minimizing operational threshold.
+     - optimal_cost (float)      -> Lowest validation operational penalty.
+     - chart_data (pd.DataFrame) -> Cost curve ready for st.line_chart().
+     - confusion_matrix (dict)   -> Counts: {'tp', 'tn', 'fp', 'fn'}.
+     - baseline_comparison (dict)-> Comparative performance vs threshold 0.50.
+     - cost_difference (float)   -> Penalty units saved vs baseline.
+     - explain() (str)           -> Formatted executive summary text.
+
+   * BusinessImpactResult:
+     - cost_savings (float)      -> Operational penalty units saved.
+     - cost_reduction_pct (float)-> Percentage cost reduction.
+     - confusion_impact (dict)   -> Deltas: {'fp_difference', 'fn_difference'}.
+     - monetary_impact (dict)    -> Dollar savings and currency projections.
+     - explain() (str) / to_dict() (dict).
+
+B. Shop Floor Dispatch Outputs (for Maintenance Dispatchers & Technicians):
+   * ScheduleResult:
+     - selected_machines (list[str]) -> Serviced machine IDs in priority order.
+     - deferred_machines (list[str]) -> Alerted machine IDs deferred by capacity.
+     - unalerted_machines (list[str])-> Healthy machine IDs below threshold.
+     - schedule_table (pd.DataFrame) -> Master dispatch decision matrix.
+     - audit_summary (dict)          -> Capacity utilization and stats.
+
+   * MultiShiftPlanResult:
+     - shift_assignments (dict[str, list[str]]) -> Rosters mapped per shift ID.
+     - shift_summaries (list[ShiftAssignmentSummary]) -> Per-shift utilization.
+     - carried_forward_history (dict[str, int]) -> Deferral counts per machine.
+     - combined_schedule_table (pd.DataFrame)   -> Multi-shift allocation matrix.
+
+C. Governance, Risk & Safety Outputs (for Plant Supervisors & Compliance):
+   * DeferredRiskResult:
+     - risk_tier_counts (dict)   -> Counts: {'Critical', 'High', 'Medium', 'Low'}.
+     - escalation_queue (list)   -> High/critical assets needing immediate action.
+     - deferred_table (DataFrame)-> Ranked backlog with follow-up recommendations.
+
+   * PolicyGuardrailResult:
+     - policy_violation_count (int) -> Critical ceiling breaches (max deferrals).
+     - mandatory_review_count (int) -> High-risk alerts needing supervisor sign-off.
+     - guardrail_table (DataFrame)  -> Complete policy compliance audit table.
+
+   * SafetyAssessmentResult:
+     - outcome (str)             -> 'SAFE_TO_INTERRUPT', 'UNSAFE_TO_INTERRUPT',
+                                    or 'INDETERMINATE'.
+     - is_safe_to_interrupt (bool) -> Strict boolean safety gate.
+     - evidence_used (dict)      -> Exact sensor values and contexts checked.
+     - missing_inputs (list)     -> Required signals that were absent.
+     - stale_signals (list)      -> Signals exceeding age limit (300s).
+     - conflicting_signals (dict)-> Discrepancies between primary & backup sensors.
+
+   * PreemptionResult:
+     - status (str)              -> 'executed', 'pending_approval', 'denied',
+                                    or 'no_preemption'.
+     - preemption_executed (bool)-> Confirms actual technician reassignment.
+     - requires_human_approval (bool) -> Blocks execution until sign-off.
+     - interrupted_job_id (str)  -> ID of paused job placed in reschedule queue.
+     - incoming_job_id (str)     -> ID of emergency incoming breakdown job.
+     - safety_assessment         -> Embedded SafetyAssessmentResult audit.
+     - decision_reason (str)     -> Explicit operational justification.
+
+   * PipelineResult:
+     - Master integration object uniting Person 1 ML predictions and Person 2
+       decisions with direct helper properties (.business_impact, .deferred_risk,
+       .guardrails, .plan_multi_shift(), .evaluate_preemption()).
+
+
+--------------------------------------------------------------------------------
+4. MODULE-BY-MODULE FUNCTIONAL BREAKDOWN
+--------------------------------------------------------------------------------
+
+[1] engine/cost_model.py
+    * Takes: false_negative_cost, false_positive_cost
+    * Gives: CostConfig, CostBreakdown, calculate_cost()
+    * Role: Encapsulates industrial penalty trade-offs.
+
+[2] engine/threshold.py
+    * Takes: y_true, probabilities, CostConfig
+    * Gives: choose_threshold() -> ThresholdResult
+    * Role: Grid search over 101 thresholds; deterministic tie-breaking (highest).
+
+[3] engine/scheduler.py
+    * Takes: fleet DataFrame, probabilities, slots, threshold, CostConfig
+    * Gives: plan_shift() -> ScheduleResult
+    * Role: Prioritizes alerts by impact; assigns slots; explains deferrals.
+
+[4] engine/business_impact.py
+    * Takes: ThresholdResult / validation predictions, MonetaryConfig
+    * Gives: calculate_business_impact() -> BusinessImpactResult
+    * Role: Quantifies executive cost savings and confusion deltas vs 0.50.
+
+[5] engine/deferred_risk.py
+    * Takes: ScheduleResult / PipelineResult, RiskTierConfig
+    * Gives: evaluate_deferred_risk() -> DeferredRiskResult
+    * Role: Segments deferred backlog into Critical/High/Med/Low tiers.
+
+[6] engine/multi_shift_scheduler.py
+    * Takes: ScheduleResult / DataFrame, list of ShiftConfig
+    * Gives: plan_multi_shift() -> MultiShiftPlanResult
+    * Role: Multi-shift capacity planning with automatic carryover queues.
+
+[7] engine/policy_guardrails.py
+    * Takes: ScheduleResult / MultiShiftPlanResult, MaintenancePolicyConfig
+    * Gives: evaluate_guardrails() -> PolicyGuardrailResult
+    * Role: Enforces managerial rules without mutating shift capacities.
+
+[8] engine/safety_assessment.py
+    * Takes: MachineTelemetryContext, EquipmentSafetyConfig
+    * Gives: assess_job_safety() -> SafetyAssessmentResult
+    * Role: Data-driven equipment safety checks; stale/conflict/missing detection.
+
+[9] engine/preemption.py
+    * Takes: active job, emergency incoming job, PreemptionConfig, safety context
+    * Gives: evaluate_preemption(), execute_preemption(), PreemptionManager
+    * Role: Safely pauses active jobs for higher-priority breakdowns; preserves state.
+
+[10] engine/pipeline.py
+    * Takes: telemetry_df, y_val, p_val, slots, predict_fn
+    * Gives: run_pipeline() / integrate_predictions() -> PipelineResult
+    * Role: End-to-end integration orchestrator connecting ML, Engine, and Dashboard.
+
+
+--------------------------------------------------------------------------------
+5. END-TO-END DATA FLOW (ASCII DIAGRAM)
+--------------------------------------------------------------------------------
+
+  +-----------------------+           +-------------------------+
+  |  PERSON 1 VALIDATION  |           |  RAW OPERATIONAL FLEET  |
+  |  (y_val, p_val data)  |           | (Telemetry + ML Probs)  |
+  +-----------------------+           +-------------------------+
+              |                                    |
+              v                                    |
+  +-----------------------+                        |
+  |  THRESHOLD OPTIMIZER  |                        |
+  | (Min Operational Cost)|                        |
+  +-----------------------+                        |
+              |                                    |
+              v (optimal threshold)                v
+  +-------------------------------------------------------------+
+  |                     SHIFT SCHEDULER                         |
+  |         (Priority Scoring & Technician Capacity)            |
+  +-------------------------------------------------------------+
+              |
+              +-------------------+-------------------+
+              |                   |                   |
+              v                   v                   v
+      +---------------+   +---------------+   +---------------+
+      |  BUSINESS     |   |   DEFERRED    |   |  MULTI-SHIFT  |
+      |    IMPACT     |   |     RISK      |   |    PLANNER    |
+      | (Cost Savings |   |  (Tiers and   |   | (Carryover to |
+      |   vs 0.50)    |   |  Escalation)  |   | Later Shifts) |
+      +---------------+   +---------------+   +---------------+
+              |                   |                   |
+              +-------------------+-------------------+
+                                  |
+                                  v
+              +---------------------------------------+
+              |      POLICY GUARDRAILS AUDIT          |
+              | (Ceiling Breaches & Mandatory Review) |
+              +---------------------------------------+
+                                  |
+                                  v
+              +---------------------------------------+
+              |   DATA-DRIVEN SAFETY ASSESSMENT       |
+              | (Temp, Vib, Freshness & Sensor Drift) |
+              +---------------------------------------+
+                                  |
+                                  v
+              +---------------------------------------+
+              |   PREEMPTIVE MAINTENANCE SCHEDULING   |
+              | (Safe Pause, State Keep, Reassignment)|
+              +---------------------------------------+
+                                  |
+                                  v
+              +---------------------------------------+
+              |       DELIVERABLES & DASHBOARD        |
+              | (Streamlit UI, Work Orders, Audit Log)|
+              +---------------------------------------+
+
+
+--------------------------------------------------------------------------------
+6. QUICK CODE USAGE EXAMPLE
+--------------------------------------------------------------------------------
+```python
+import pandas as pd
+from engine import (
+    choose_threshold,
+    plan_shift,
+    MachineTelemetryContext,
+    DEFAULT_EQUIPMENT_SAFETY_CONFIG,
+    evaluate_preemption,
+)
+
+# 1. Optimize threshold on validation data
+y_val = [0, 0, 1, 1, 0, 1]
+p_val = [0.12, 0.25, 0.89, 0.95, 0.30, 0.75]
+thresh = choose_threshold(y_val, p_val)
+print(f"Optimal Threshold: {thresh.optimal_threshold:.2f} (Savings: {thresh.cost_difference:.1f} units)")
+
+# 2. Dispatch operational fleet for 1 slot
+fleet = pd.DataFrame({"machine_id": ["CNC-01", "CNC-02", "CNC-03"]})
+probs = [0.92, 0.78, 0.20]
+plan = plan_shift(fleet, probabilities=probs, slots=1, threshold=thresh.threshold)
+print(f"Serviced: {plan.selected_machines} | Deferred: {plan.deferred_machines}")
+
+# 3. Assess real-time preemption safety with live telemetry
+safety = MachineTelemetryContext(
+    machine_id="CNC-01",
+    telemetry_signals={"temperature_c": 68.0, "vibration_rms": 2.2},
+    timestamp=1000.0,
+    current_time=1030.0,
+    is_reversible_stage=True,
+)
+
+# 4. Incoming sudden breakdown occurs on another machine
+decision = plan.evaluate_preemption(
+    incoming_job={
+        "job_id": "BREAKDOWN-PRESS-09",
+        "machine_id": "PRESS-09",
+        "priority_score": 98.0,
+        "alert_category": "actual_failure",
+    },
+    safety_context=safety,
+)
+print(decision.explain())
+```
+
+--------------------------------------------------------------------------------
+7. DYNAMIC ZERO-HARDCODING FILE INGESTION & CONFIGURATION
+--------------------------------------------------------------------------------
+ForgeGuard is engineered with ZERO hardcoded file paths, tolerances, or policies:
+- All configurations, limits, policies, and shift rosters are externalized into `configs/`.
+- Every configuration class supports `.from_file(path)`, `.to_file(path)`, `.from_dict()`, `.to_dict()`.
+- All engine endpoints accept file path strings (`str` or `pathlib.Path`) to CSV or JSON directly.
+
+Examples of Zero-Hardcoding Dynamic Ingestion:
+```python
+from engine import (
+    CostConfig,
+    EquipmentSafetyConfig,
+    PreemptionConfig,
+    ShiftConfig,
+    plan_shift,
+    plan_multi_shift,
+    assess_job_safety,
+    evaluate_preemption,
+)
+
+# 1. Load configurations dynamically from arbitrary external JSON files
+costs = CostConfig.from_file("configs/cost_parameters.json")
+safety_rules = EquipmentSafetyConfig.from_file("configs/equipment_safety_rules.json")
+preemption_rules = PreemptionConfig.from_file("configs/preemption_rules.json")
+
+# 2. Plan a single shift directly from a CSV file path without in-memory loading
+shift_plan = plan_shift(df="data/fleet_telemetry.csv", slots=2, threshold=0.55, costs=costs)
+
+# 3. Plan multiple shifts using external files for predictions and shift definitions
+multi_plan = plan_multi_shift(
+    schedule_or_df="data/fleet_predictions.csv",
+    shifts="configs/shifts_schedule.json",
+    costs="configs/cost_parameters.json",
+)
+
+# 4. Assess job safety and preemption directly from external telemetry JSON files
+safety = assess_job_safety(context="data/live_telemetry.json", config=safety_rules)
+decision = evaluate_preemption(
+    current_job="data/active_job.json",
+    incoming_job="data/breakdown_alert.json",
+    config=preemption_rules,
+)
+```
+================================================================================
+END OF FORGEGUARD DECISION ENGINE SUMMARY
+================================================================================
+

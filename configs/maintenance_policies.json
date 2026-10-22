@@ -1,0 +1,18 @@
+{
+  "risk_config": {
+    "critical_threshold": 0.80,
+    "high_threshold": 0.60,
+    "medium_threshold": 0.40,
+    "escalate_critical": true,
+    "escalate_high": true,
+    "escalate_medium": false,
+    "escalate_low": false
+  },
+  "mandatory_review_critical": true,
+  "escalate_critical_deferred": true,
+  "escalate_high_deferred": true,
+  "max_consecutive_deferrals": 2,
+  "enforce_max_deferral_violation": true,
+  "require_review_on_max_deferral": true,
+  "escalate_on_max_deferral": true
+}

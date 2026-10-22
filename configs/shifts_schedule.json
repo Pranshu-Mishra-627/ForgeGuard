@@ -1,0 +1,14 @@
+[
+  {
+    "shift_id": "Shift_1_Morning",
+    "capacity": 3
+  },
+  {
+    "shift_id": "Shift_2_Afternoon",
+    "capacity": 2
+  },
+  {
+    "shift_id": "Shift_3_Night",
+    "capacity": 1
+  }
+]

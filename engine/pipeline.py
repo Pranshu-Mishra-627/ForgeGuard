@@ -13,6 +13,7 @@ Provides end-to-end integration:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
@@ -143,6 +144,49 @@ class PipelineResult:
             return self.threshold_result.business_impact
         return None
 
+    def evaluate_deferred_risk(self, config: Any = None) -> Any:
+        """Evaluates operational risk and follow-up recommendations for deferred machines."""
+        from engine.deferred_risk import evaluate_deferred_risk
+
+        return evaluate_deferred_risk(self, config=config)
+
+    @property
+    def deferred_risk(self) -> Any:
+        """DeferredRiskResult evaluating deferred machines from pipeline execution."""
+        return self.evaluate_deferred_risk()
+
+    def plan_multi_shift(self, shifts: Any, **kwargs: Any) -> Any:
+        """Allocates operational alerts across sequential shifts with carry-forward deferrals."""
+        from engine.multi_shift_scheduler import plan_multi_shift
+
+        return plan_multi_shift(self, shifts=shifts, **kwargs)
+
+    def evaluate_guardrails(self, config: Any = None) -> Any:
+        """Evaluates maintenance policy guardrails and compliance for pipeline results."""
+        from engine.policy_guardrails import evaluate_guardrails
+
+        return evaluate_guardrails(self, config=config)
+
+    @property
+    def guardrails(self) -> Any:
+        """PolicyGuardrailResult evaluating pipeline results under default guardrails."""
+        return self.evaluate_guardrails()
+
+    def evaluate_preemption(
+        self,
+        incoming_job: Any,
+        current_machine_id: Any = None,
+        technician_id: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Evaluates whether to preempt an active dispatch from pipeline schedule."""
+        return self.schedule_result.evaluate_preemption(
+            incoming_job,
+            current_machine_id=current_machine_id,
+            technician_id=technician_id,
+            **kwargs,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Convert pipeline result to dictionary representation."""
         return {
@@ -267,8 +311,26 @@ def integrate_predictions(
         ValueError: If predictions_df is empty, required columns are missing, probabilities
             are non-finite or out of [0, 1], or threshold cannot be determined.
     """
-    if not isinstance(predictions_df, pd.DataFrame):
+    if isinstance(predictions_df, Path) or (
+        isinstance(predictions_df, str)
+        and (Path(predictions_df).is_file() or any(predictions_df.lower().endswith(ext) for ext in (".csv", ".json", ".parquet", ".pq")))
+    ):
+        from engine.file_utils import load_dataframe_or_path
+
+        predictions_df = load_dataframe_or_path(predictions_df)
+    elif not isinstance(predictions_df, pd.DataFrame):
         raise TypeError(f"predictions_df must be a pandas DataFrame, got {type(predictions_df).__name__}.")
+
+    if telemetry_df is not None and (
+        isinstance(telemetry_df, Path)
+        or (
+            isinstance(telemetry_df, str)
+            and (Path(telemetry_df).is_file() or any(telemetry_df.lower().endswith(ext) for ext in (".csv", ".json", ".parquet", ".pq")))
+        )
+    ):
+        from engine.file_utils import load_dataframe_or_path
+
+        telemetry_df = load_dataframe_or_path(telemetry_df)
 
     if len(predictions_df) == 0:
         raise ValueError("predictions_df cannot be empty.")
@@ -422,7 +484,14 @@ def predict_and_schedule(
     Returns:
         PipelineResult with combined DataFrame and shift decision results.
     """
-    if not isinstance(telemetry_df, pd.DataFrame):
+    if isinstance(telemetry_df, Path) or (
+        isinstance(telemetry_df, str)
+        and (Path(telemetry_df).is_file() or any(telemetry_df.lower().endswith(ext) for ext in (".csv", ".json", ".parquet", ".pq")))
+    ):
+        from engine.file_utils import load_dataframe_or_path
+
+        telemetry_df = load_dataframe_or_path(telemetry_df)
+    elif not isinstance(telemetry_df, pd.DataFrame):
         raise TypeError(f"telemetry_df must be a pandas DataFrame, got {type(telemetry_df).__name__}.")
 
     if len(telemetry_df) == 0:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
@@ -48,6 +49,44 @@ class CostConfig:
             raise ValueError(f"'{name}' must be finite, got {value}.")
         if value < 0:
             raise ValueError(f"'{name}' must be non-negative (>= 0), got {value}.")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert cost configuration to dictionary representation."""
+        return {
+            "false_negative_cost": self.false_negative_cost,
+            "false_positive_cost": self.false_positive_cost,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CostConfig:
+        """Create CostConfig instance dynamically from mapping."""
+        return cls(
+            false_negative_cost=float(data.get("false_negative_cost", DEFAULT_FALSE_NEGATIVE_COST)),
+            false_positive_cost=float(data.get("false_positive_cost", DEFAULT_FALSE_POSITIVE_COST)),
+        )
+
+    @classmethod
+    def from_file(cls, filepath: str | Any) -> CostConfig:
+        """Load CostConfig dynamically from external JSON configuration file."""
+        import json
+        from pathlib import Path
+
+        path = Path(filepath)
+        if not path.is_file():
+            raise FileNotFoundError(f"Cost configuration file not found: {filepath}")
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return cls.from_dict(data)
+
+    def to_file(self, filepath: str | Any) -> None:
+        """Export CostConfig to an external JSON configuration file."""
+        import json
+        from pathlib import Path
+
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
 
 
 @dataclass(frozen=True)
@@ -90,24 +129,30 @@ class CostBreakdown:
         raise KeyError(key)
 
 
-def validate_cost_config(costs: CostConfig | Mapping[str, Any] | None = None) -> CostConfig:
+def validate_cost_config(
+    costs: CostConfig | Mapping[str, Any] | str | Path | None = None,
+) -> CostConfig:
     """Validates and normalizes cost configuration.
 
     Args:
         costs: A CostConfig instance, a dictionary mapping cost parameter names,
+            a file path string or Path to a JSON configuration file,
             or None to use the default cost configuration.
 
     Returns:
         A validated CostConfig instance.
 
     Raises:
-        TypeError: If costs is not a CostConfig, Mapping, or None.
+        FileNotFoundError: If a file path is provided but does not exist.
+        TypeError: If costs is not a CostConfig, Mapping, file path, or None.
         ValueError: If cost parameters fail validation or unknown keys are passed.
     """
     if costs is None:
         return CostConfig()
     if isinstance(costs, CostConfig):
         return costs
+    if isinstance(costs, (str, Path)):
+        return CostConfig.from_file(costs)
     if isinstance(costs, Mapping):
         allowed_keys = {"false_negative_cost", "false_positive_cost"}
         unknown_keys = set(costs.keys()) - allowed_keys
@@ -118,7 +163,7 @@ def validate_cost_config(costs: CostConfig | Mapping[str, Any] | None = None) ->
         return CostConfig(false_negative_cost=fn_cost, false_positive_cost=fp_cost)
     raise TypeError(
         f"Invalid cost configuration type: {type(costs).__name__}. "
-        "Expected CostConfig, dict/Mapping, or None."
+        "Expected CostConfig, dict/Mapping, file path (str/Path), or None."
     )
 
 

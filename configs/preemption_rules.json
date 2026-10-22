@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "min_priority_delta": 5.0,
+  "allowed_alert_categories": [
+    "actual_failure",
+    "critical_alert",
+    "predicted_high_risk"
+  ],
+  "require_human_approval": false,
+  "interruptible_job_states": [
+    "in_progress",
+    "active",
+    "dispatched",
+    "pending"
+  ],
+  "interruptible_job_types": [
+    "routine_inspection",
+    "preventive_maintenance",
+    "standard_repair",
+    "scheduled_servicing",
+    "lubrication",
+    "filter_replacement"
+  ],
+  "non_interruptible_job_types": [
+    "emergency_repair",
+    "critical_overhaul",
+    "safety_containment",
+    "hazardous_material_service"
+  ],
+  "allow_unknown_interruptibility": false
+}

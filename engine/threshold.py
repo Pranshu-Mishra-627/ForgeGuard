@@ -19,6 +19,7 @@ Input Validation:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -217,6 +218,28 @@ def choose_threshold(
         TypeError: If input data types or cost configuration are invalid.
     """
     cost_cfg = validate_cost_config(costs)
+
+    if isinstance(y_true, (str, Path)):
+        from engine.file_utils import load_dataframe_or_path
+
+        val_df = load_dataframe_or_path(y_true)
+        if probabilities is None:
+            y_col = next((c for c in ["y_true", "label", "actual", "failure", "ground_truth"] if c in val_df.columns), val_df.columns[0])
+            p_col = next((c for c in ["probabilities", "probability", "failure_probability", "p_val", "score"] if c in val_df.columns), val_df.columns[1])
+            y_true = val_df[y_col]
+            probabilities = val_df[p_col]
+        elif isinstance(probabilities, str) and probabilities in val_df.columns:
+            y_col = next((c for c in ["y_true", "label", "actual", "failure", "ground_truth"] if c in val_df.columns), val_df.columns[0])
+            p_col = probabilities
+            y_true = val_df[y_col]
+            probabilities = val_df[p_col]
+
+    if isinstance(probabilities, (str, Path)):
+        from engine.file_utils import load_dataframe_or_path
+
+        prob_df = load_dataframe_or_path(probabilities)
+        p_col = next((c for c in ["probabilities", "probability", "failure_probability", "p_val", "score"] if c in prob_df.columns), prob_df.columns[0])
+        probabilities = prob_df[p_col]
 
     # Convert probabilities to float array
     try:
