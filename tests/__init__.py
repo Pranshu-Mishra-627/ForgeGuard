@@ -1,1 +1,1 @@
-"""Tests package for ForgeGuard."""
+"""Test suite package."""
