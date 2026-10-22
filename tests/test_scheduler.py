@@ -320,3 +320,78 @@ class TestShiftScheduler:
         assert res["table"].equals(res.schedule_table)
         assert res.table.equals(res.schedule_table)
         assert res.result_table.equals(res.schedule_table)
+
+    def test_unalerted_machines_clearly_distinguished(self, sample_machines_df: pd.DataFrame) -> None:
+        """ScheduleResult clearly distinguishes selected, deferred, and unalerted machines."""
+        probs = [0.90, 0.75, 0.60, 0.35, 0.10]
+        # At threshold 0.50: A, B, C alert (3 alerts). With 2 slots, A, B selected, C deferred. D, E unalerted.
+        res = plan_shift(df=sample_machines_df, probabilities=probs, slots=2, threshold=0.50)
+
+        assert res.selected_machines == ["M-001", "M-002"]
+        assert res.deferred_machines == ["M-003"]
+        assert res.unalerted_machines == ["M-004", "M-005"]
+
+        # The 3 lists partition all input machines with zero overlap
+        all_partitioned = res.selected_machines + res.deferred_machines + res.unalerted_machines
+        assert all_partitioned == list(sample_machines_df["machine_id"])
+        assert set(res.selected_machines).isdisjoint(set(res.deferred_machines))
+        assert set(res.selected_machines).isdisjoint(set(res.unalerted_machines))
+        assert set(res.deferred_machines).isdisjoint(set(res.unalerted_machines))
+
+    def test_audit_summary_structure_and_metrics(self, sample_machines_df: pd.DataFrame) -> None:
+        """ScheduleResult includes compact audit summary for operations and UI."""
+        probs = [0.85, 0.70, 0.55, 0.30, 0.15]
+        res = plan_shift(df=sample_machines_df, probabilities=probs, slots=2, threshold=0.50)
+
+        summary = res.audit_summary
+        assert isinstance(summary, dict)
+        assert summary["operational_threshold"] == 0.50
+        assert summary["technician_slots"] == 2
+        assert summary["cost_assumptions"]["false_negative_cost"] == 20.0
+        assert summary["cost_assumptions"]["false_positive_cost"] == 1.0
+        assert summary["total_machines"] == 5
+        assert summary["selected_count"] == 2
+        assert summary["deferred_count"] == 1
+        assert summary["unalerted_count"] == 2
+        assert summary["capacity_utilized"] == 2
+        assert summary["capacity_remaining"] == 0
+
+        # Dict key and to_dict access
+        assert res["audit_summary"] == summary
+        assert res.to_dict()["audit_summary"] == summary
+
+    def test_changing_slots_does_not_change_threshold_or_alert_eligibility(
+        self, sample_machines_df: pd.DataFrame
+    ) -> None:
+        """Changing technician slots must never silently alter the alert threshold or alert eligibility."""
+        probs = [0.90, 0.75, 0.60, 0.40, 0.20]
+        threshold = 0.50
+
+        plan_1 = plan_shift(df=sample_machines_df, probabilities=probs, slots=1, threshold=threshold)
+        plan_3 = plan_shift(df=sample_machines_df, probabilities=probs, slots=3, threshold=threshold)
+        plan_5 = plan_shift(df=sample_machines_df, probabilities=probs, slots=5, threshold=threshold)
+
+        # Thresholds remain identical
+        assert plan_1.audit_summary["operational_threshold"] == threshold
+        assert plan_3.audit_summary["operational_threshold"] == threshold
+        assert plan_5.audit_summary["operational_threshold"] == threshold
+
+        # Alert status is completely identical across all machines
+        assert plan_1.alert_status == plan_3.alert_status == plan_5.alert_status
+        pd.testing.assert_series_equal(plan_1.schedule_table["alert"], plan_3.schedule_table["alert"])
+        pd.testing.assert_series_equal(plan_1.schedule_table["alert"], plan_5.schedule_table["alert"])
+
+        # Alert eligibility does not change: exactly M-001, M-002, M-003 alert in all runs
+        expected_alerts = {
+            "M-001": True,
+            "M-002": True,
+            "M-003": True,
+            "M-004": False,
+            "M-005": False,
+        }
+        assert plan_1.alert_status == expected_alerts
+
+        # Only dispatch allocations adapt to available capacity
+        assert plan_1.selected_machines == ["M-001"]
+        assert plan_3.selected_machines == ["M-001", "M-002", "M-003"]
+        assert plan_5.selected_machines == ["M-001", "M-002", "M-003"]  # Only 3 alerts exist

@@ -18,7 +18,7 @@ Input Validation:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -39,31 +39,152 @@ class ThresholdResult:
         min_cost: The minimum total operational cost achieved.
         cost_curve: Complete evaluation curve across all candidate thresholds (pd.DataFrame).
         confusion_matrix: Dictionary containing TP, TN, FP, and FN counts at the selected threshold.
+        baseline_comparison: Dictionary comparing selected threshold against baseline threshold 0.50.
     """
 
     threshold: float
     min_cost: float
     cost_curve: pd.DataFrame
     confusion_matrix: dict[str, int]
+    baseline_comparison: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def optimal_threshold(self) -> float:
+        """Alias for threshold (optimal threshold minimizing validation cost)."""
+        return self.threshold
+
+    @property
+    def optimal_cost(self) -> float:
+        """Alias for min_cost (minimum validation cost achieved)."""
+        return self.min_cost
+
+    @property
+    def minimum_cost(self) -> float:
+        """Alias for min_cost."""
+        return self.min_cost
+
+    @property
+    def baseline_threshold(self) -> float:
+        """Standard baseline threshold (0.50)."""
+        return float(self.baseline_comparison.get("baseline_threshold", 0.50))
+
+    @property
+    def baseline_cost(self) -> float:
+        """Operational cost evaluated at baseline threshold 0.50."""
+        return float(self.baseline_comparison.get("baseline_cost", 0.0))
+
+    @property
+    def cost_difference(self) -> float:
+        """Cost difference (savings) achieved by optimal threshold vs baseline 0.50.
+
+        Calculated as: baseline_cost - optimal_cost.
+        A positive value indicates the reduction in operational penalty units.
+        """
+        return float(self.baseline_comparison.get("cost_difference", self.baseline_comparison.get("cost_savings", 0.0)))
+
+    @property
+    def cost_savings(self) -> float:
+        """Cost reduction achieved by optimal threshold vs baseline 0.50."""
+        return float(self.baseline_comparison.get("cost_savings", 0.0))
+
+    @property
+    def cost_reduction_pct(self) -> float:
+        """Percentage cost reduction achieved vs baseline 0.50."""
+        return float(self.baseline_comparison.get("cost_reduction_pct", 0.0))
+
+    @property
+    def baseline_confusion_matrix(self) -> dict[str, int]:
+        """Confusion matrix (TP, TN, FP, FN) evaluated at baseline threshold 0.50."""
+        return dict(self.baseline_comparison.get("baseline_confusion_matrix", {}))
+
+    @property
+    def is_optimal_better_or_equal(self) -> bool:
+        """Whether optimal threshold achieves total cost less than or equal to baseline."""
+        return bool(self.baseline_comparison.get("is_optimal_better_or_equal", True))
+
+    @property
+    def explanation(self) -> str:
+        """Human-readable explanation of threshold optimization vs baseline."""
+        return str(self.baseline_comparison.get("explanation", ""))
+
+    @property
+    def chart_data(self) -> pd.DataFrame:
+        """Cost curve indexed by threshold, ready for direct plotting in Streamlit with st.line_chart()."""
+        return self.cost_curve.set_index("threshold")
+
+    def explain(self) -> str:
+        """Returns a comprehensive, human-readable summary of the threshold cost analysis."""
+        opt_cm = self.confusion_matrix
+        base_cm = self.baseline_confusion_matrix
+        return (
+            f"Explainable Threshold Cost Analysis:\n"
+            f"  - Optimal Operational Threshold: {self.threshold:.2f} (Total Cost: {self.min_cost:.2f})\n"
+            f"    Confusion Matrix: TP={opt_cm.get('tp', 0)}, TN={opt_cm.get('tn', 0)}, "
+            f"FP={opt_cm.get('fp', 0)}, FN={opt_cm.get('fn', 0)}\n"
+            f"  - Baseline Threshold: {self.baseline_threshold:.2f} (Total Cost: {self.baseline_cost:.2f})\n"
+            f"    Confusion Matrix: TP={base_cm.get('tp', 0)}, TN={base_cm.get('tn', 0)}, "
+            f"FP={base_cm.get('fp', 0)}, FN={base_cm.get('fn', 0)}\n"
+            f"  - Cost Difference (Savings): {self.cost_difference:.2f} ({self.cost_reduction_pct:.1f}% reduction vs baseline)\n"
+            f"  - Operational Decision Rule: Alert when failure probability >= {self.threshold:.2f}\n"
+            f"  - Tie-Breaking Rule: Selected highest threshold among candidates with identical minimum cost."
+        )
+
+    def get_business_impact(
+        self,
+        monetary_value_per_unit: float | None = None,
+        currency: str = "USD",
+    ) -> Any:
+        """Calculates executive business impact and cost savings vs baseline threshold 0.50."""
+        from engine.business_impact import calculate_business_impact
+
+        return calculate_business_impact(
+            self,
+            monetary_value_per_unit=monetary_value_per_unit,
+            currency=currency,
+        )
+
+    @property
+    def business_impact(self) -> Any:
+        """BusinessImpactResult comparing optimal threshold against baseline threshold 0.50."""
+        return self.get_business_impact()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary representation."""
         return {
             "threshold": self.threshold,
             "min_cost": self.min_cost,
+            "optimal_threshold": self.optimal_threshold,
+            "optimal_cost": self.optimal_cost,
+            "baseline_threshold": self.baseline_threshold,
+            "baseline_cost": self.baseline_cost,
+            "cost_difference": self.cost_difference,
+            "cost_savings": self.cost_savings,
+            "cost_reduction_pct": self.cost_reduction_pct,
             "cost_curve": self.cost_curve,
             "confusion_matrix": self.confusion_matrix,
+            "baseline_comparison": self.baseline_comparison,
+            "explanation": self.explanation,
         }
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, str):
             if hasattr(self, key):
                 return getattr(self, key)
+            if key in self.baseline_comparison:
+                return self.baseline_comparison[key]
             raise KeyError(key)
-        fields = (self.threshold, self.min_cost, self.cost_curve, self.confusion_matrix)
+        fields = (
+            self.threshold,
+            self.min_cost,
+            self.cost_curve,
+            self.confusion_matrix,
+            self.baseline_comparison,
+        )
         return fields[key]
 
     def __iter__(self):
+        # Return 4 items for backward compatibility:
+        # threshold, min_cost, cost_curve, confusion = choose_threshold(...)
         return iter((self.threshold, self.min_cost, self.cost_curve, self.confusion_matrix))
 
 
@@ -211,9 +332,47 @@ def choose_threshold(
         "fn": int(best_row["fn"]),
     }
 
+    # Baseline comparison against standard 0.50 threshold (always evaluated directly at 0.50)
+    baseline_threshold = 0.50
+    base_pred_pos = (p_arr >= baseline_threshold)
+    base_tp = int(np.sum(y_bool & base_pred_pos))
+    base_fn = int(np.sum(y_bool & (~base_pred_pos)))
+    base_fp = int(np.sum((~y_bool) & base_pred_pos))
+    base_tn = int(np.sum((~y_bool) & (~base_pred_pos)))
+    base_breakdown = calculate_cost(false_negatives=base_fn, false_positives=base_fp, costs=cost_cfg)
+    base_cost = float(base_breakdown.total_cost)
+
+    cost_savings = float(base_cost - selected_min_cost)
+    reduction_pct = float((cost_savings / base_cost * 100.0) if base_cost > 0 else 0.0)
+
+    baseline_comp = {
+        "baseline_threshold": baseline_threshold,
+        "baseline_cost": base_cost,
+        "baseline_confusion_matrix": {
+            "tp": base_tp,
+            "tn": base_tn,
+            "fp": base_fp,
+            "fn": base_fn,
+        },
+        "selected_threshold": selected_threshold,
+        "selected_cost": selected_min_cost,
+        "optimal_threshold": selected_threshold,
+        "optimal_cost": selected_min_cost,
+        "cost_difference": cost_savings,
+        "cost_savings": cost_savings,
+        "cost_reduction_pct": round(reduction_pct, 2),
+        "is_optimal_better_or_equal": bool(selected_min_cost <= base_cost + 1e-9),
+        "explanation": (
+            f"Cost-optimized threshold {selected_threshold:.2f} achieves total cost {selected_min_cost:.2f} "
+            f"vs baseline threshold {baseline_threshold:.2f} cost {base_cost:.2f} "
+            f"(savings: {cost_savings:.2f}, {reduction_pct:.1f}% reduction)."
+        ),
+    }
+
     return ThresholdResult(
         threshold=selected_threshold,
         min_cost=selected_min_cost,
         cost_curve=cost_curve_df,
         confusion_matrix=confusion,
+        baseline_comparison=baseline_comp,
     )

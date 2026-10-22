@@ -11,14 +11,20 @@ This repository implements the **Decision Engine** for NexAI Hack 2026 Problem S
 ```
 ForgeGuard/
 ├── engine/
-│   ├── __init__.py           # Exports public API (plan_shift, choose_threshold, calculate_cost, CostConfig)
+│   ├── __init__.py           # Exports public API (plan_shift, choose_threshold, calculate_business_impact, CostConfig)
+│   ├── business_impact.py    # Cost savings, confusion count impact & executive monetary projections
+│   ├── BUSINESS_IMPACT.md    # Dedicated documentation for Cost Savings & Business Impact feature
 │   ├── cost_model.py         # Cost parameter configuration and evaluation
 │   ├── threshold.py          # Validation-based threshold grid search & cost curve calculation
-│   └── scheduler.py          # Alert filtering, priority scoring, and capacity-constrained dispatching
+│   ├── scheduler.py          # Alert filtering, priority scoring, and capacity-constrained dispatching
+│   └── pipeline.py           # End-to-end integration with Person 1's ML predictions
 ├── tests/
 │   ├── __init__.py
+│   ├── test_business_impact.py # Unit tests for cost savings, monetary conversion, and business impact
 │   ├── test_cost_model.py    # Unit tests for cost model and threshold optimization
-│   └── test_scheduler.py     # Unit tests for scheduler, capacity constraints, and edge cases
+│   ├── test_scheduler.py     # Unit tests for scheduler, capacity constraints, and edge cases
+│   ├── test_integration.py   # Integration tests with ML outputs
+│   └── test_pipeline_integration.py # Full pipeline integration tests
 └── README.md
 ```
 
@@ -60,16 +66,22 @@ Person 1 supplies:
 ### Downstream (Person 2 → Person 3)
 Person 3 consumes:
 1. **Threshold Optimization Result** (`ThresholdResult`):
-   - `.threshold`: Selected optimal alert threshold (`float`).
-   - `.min_cost`: Minimum total cost achieved (`float`).
+   - `.threshold` / `.optimal_threshold`: Selected optimal alert threshold (`float`).
+   - `.min_cost` / `.optimal_cost`: Minimum total cost achieved (`float`).
    - `.cost_curve`: Full evaluation curve (`pd.DataFrame` with columns: `['threshold', 'tp', 'tn', 'fp', 'fn', 'total_cost', 'fn_cost', 'fp_cost']`).
-   - `.confusion_matrix`: Dictionary with confusion counts `{'tp': int, 'tn': int, 'fp': int, 'fn': int}`.
+   - `.chart_data`: Cost curve indexed by candidate threshold, ready for direct plotting in Streamlit with `st.line_chart(result.chart_data["total_cost"])`.
+   - `.confusion_matrix`: Dictionary with confusion counts `{'tp': int, 'tn': int, 'fp': int, 'fn': int}` at optimal threshold.
+   - `.baseline_comparison`: Dictionary comparing selected threshold against baseline threshold 0.50 (`baseline_threshold`, `baseline_cost`, `cost_difference`, `cost_savings`, `cost_reduction_pct`, `explanation`).
+   - `.cost_difference`: Cost savings (`baseline_cost - optimal_cost`) in relative operational penalty units.
+   - `.explain()`: Formatted multi-line explainability summary for UI display or logging.
 
 2. **Shift Schedule Result** (`ScheduleResult`):
    - `.selected_machines`: List of machine IDs selected for service (in priority order).
    - `.deferred_machines`: List of alerted machine IDs deferred due to capacity (in priority order).
+   - `.unalerted_machines`: List of machine IDs not alerted (probability below threshold).
    - `.alert_status`: Mapping `{machine_id: bool}`.
    - `.selection_reasons`: Mapping `{machine_id: str}`.
+   - `.audit_summary`: Compact operational summary dictionary (threshold, slots, costs, counts, capacity utilization).
    - `.schedule_table`: Complete decision table (`pd.DataFrame`) with columns:
      - `machine_id`: Stable machine identifier.
      - `failure_probability`: Machine failure probability in `[0.0, 1.0]`.
@@ -77,6 +89,10 @@ Person 3 consumes:
      - `priority_score`: Expected failure impact score.
      - `selected_for_service`: Boolean dispatch flag.
      - `reason`: Explicit operational explanation.
+
+3. **End-to-End Pipeline Result** (`PipelineResult`):
+   - Combined table with Person 1 features (`machine_id`, `failure_probability`, `predicted_failure_mode`, `maintenance_alert`) and Person 2 decision fields (`operational_alert`, `priority_score`, `service_assignment`, `decision_reason`).
+   - Includes `.audit_summary`, `.selected_machines`, `.deferred_machines`, and `.unalerted_machines`.
 
 ---
 

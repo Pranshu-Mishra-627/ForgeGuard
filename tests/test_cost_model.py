@@ -295,3 +295,179 @@ class TestThresholdSelection:
         # All ones: minimum cost occurs when threshold is low enough to catch all failures (0 FN)
         all_ones = choose_threshold(y_true=[1, 1, 1], probabilities=[0.7, 0.8, 0.9])
         assert all_ones.min_cost == pytest.approx(0.0)
+
+    def test_threshold_baseline_comparison_included_and_accurate(self) -> None:
+        """ThresholdResult includes structured comparison against baseline threshold 0.50."""
+        y_val = [0, 0, 0, 0, 1, 1, 1, 1]
+        probs = [0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9]
+
+        res = choose_threshold(y_true=y_val, probabilities=probs)
+
+        # Baseline comparison exists and contains required fields
+        base = res.baseline_comparison
+        assert isinstance(base, dict)
+        assert base["baseline_threshold"] == 0.50
+        assert "baseline_cost" in base
+        assert "baseline_confusion_matrix" in base
+        assert "cost_savings" in base
+        assert "cost_reduction_pct" in base
+        assert "is_optimal_better_or_equal" in base
+        assert "explanation" in base
+
+        # Baseline cost matches cost_curve at 0.50
+        curve_at_base = res.cost_curve[np.isclose(res.cost_curve["threshold"], 0.50)].iloc[0]
+        assert base["baseline_cost"] == pytest.approx(curve_at_base["total_cost"])
+        assert base["baseline_confusion_matrix"]["tp"] == int(curve_at_base["tp"])
+        assert base["baseline_confusion_matrix"]["fn"] == int(curve_at_base["fn"])
+        assert base["baseline_confusion_matrix"]["fp"] == int(curve_at_base["fp"])
+        assert base["baseline_confusion_matrix"]["tn"] == int(curve_at_base["tn"])
+
+        # Cost savings formula: baseline_cost - optimal_min_cost
+        assert base["cost_savings"] == pytest.approx(base["baseline_cost"] - res.min_cost)
+        assert base["is_optimal_better_or_equal"] is True
+
+        # Accessible via dictionary-style and attribute access
+        assert res["baseline_comparison"] == base
+        assert res.to_dict()["baseline_comparison"] == base
+
+    def test_baseline_comparison_calculated_at_050_when_grid_excludes_050(self) -> None:
+        """Regression test: Baseline comparison strictly evaluates threshold 0.50 even when grid excludes 0.50.
+
+        Verifies:
+        1. Custom grid includes 0.0 and 1.0 but excludes 0.50.
+        2. baseline_comparison['baseline_threshold'] is exactly 0.50 (not nearest grid point like 0.25 or 0.75).
+        3. Baseline confusion counts and cost are calculated using probability >= 0.50.
+        4. No substitute or nearest grid threshold is used or mislabeled as baseline.
+        """
+        y_val = [0, 0, 0, 1, 1, 1]
+        probs = [0.10, 0.20, 0.60, 0.40, 0.80, 0.90]
+        # At threshold 0.50:
+        # y=0: [0.10, 0.20, 0.60] -> p >= 0.5: 0.60 (FP=1), p < 0.5: 0.10, 0.20 (TN=2)
+        # y=1: [0.40, 0.80, 0.90] -> p >= 0.5: 0.80, 0.90 (TP=2), p < 0.5: 0.40 (FN=1)
+        # Expected baseline confusion counts at 0.50: TP=2, TN=2, FP=1, FN=1
+        # Expected baseline cost: (20.0 * 1) + (1.0 * 1) = 21.0
+
+        custom_grid = [0.0, 0.25, 0.75, 1.0]  # Excludes 0.50 completely
+
+        res = choose_threshold(
+            y_true=y_val,
+            probabilities=probs,
+            threshold_grid=custom_grid,
+        )
+
+        # Confirm 0.50 is NOT in evaluated cost curve
+        assert 0.50 not in res.cost_curve["threshold"].values
+
+        # Confirm baseline threshold is strictly 0.50, not nearest grid point (0.25 or 0.75)
+        base = res.baseline_comparison
+        assert base["baseline_threshold"] == 0.50
+
+        # Confirm exact confusion counts at 0.50
+        assert base["baseline_confusion_matrix"] == {
+            "tp": 2,
+            "tn": 2,
+            "fp": 1,
+            "fn": 1,
+        }
+
+        # Confirm exact baseline cost at 0.50
+        assert base["baseline_cost"] == pytest.approx(21.0)
+
+        # Confirm cost savings against the optimal threshold found on custom_grid
+        assert base["cost_savings"] == pytest.approx(21.0 - res.min_cost)
+        assert base["is_optimal_better_or_equal"] is True
+
+        # Confirm explanation text clearly references baseline threshold 0.50
+        assert "vs baseline threshold 0.50 cost 21.00" in base["explanation"]
+
+    def test_explainable_threshold_cost_analysis_outputs(self) -> None:
+        """Verify explainable threshold cost analysis properties, aliases, and Streamlit helpers."""
+        y_val = [0, 0, 0, 0, 1, 1, 1, 1]
+        probs = [0.10, 0.20, 0.30, 0.40, 0.60, 0.70, 0.80, 0.90]
+
+        res = choose_threshold(y_true=y_val, probabilities=probs)
+
+        # 1. Optimal threshold & cost properties
+        assert res.optimal_threshold == res.threshold
+        assert res.optimal_cost == res.min_cost
+        assert res.minimum_cost == res.min_cost
+
+        # 2. Baseline comparison properties
+        assert res.baseline_threshold == 0.50
+        assert res.baseline_cost >= 0.0
+        assert res.cost_difference == pytest.approx(res.baseline_cost - res.optimal_cost)
+        assert res.cost_savings == pytest.approx(res.cost_difference)
+        assert res.is_optimal_better_or_equal is True
+        assert isinstance(res.baseline_confusion_matrix, dict)
+        assert set(res.baseline_confusion_matrix.keys()) == {"tp", "tn", "fp", "fn"}
+
+        # 3. Streamlit chart data helper: DataFrame indexed by candidate threshold
+        chart = res.chart_data
+        assert isinstance(chart, pd.DataFrame)
+        assert chart.index.name == "threshold"
+        assert "total_cost" in chart.columns
+        assert "fn_cost" in chart.columns
+        assert "fp_cost" in chart.columns
+        assert len(chart) == len(res.cost_curve)
+
+        # 4. Human-readable explainability
+        assert isinstance(res.explanation, str)
+        assert len(res.explanation) > 0
+        explained_text = res.explain()
+        assert isinstance(explained_text, str)
+        assert "Explainable Threshold Cost Analysis" in explained_text
+        assert f"Optimal Operational Threshold: {res.optimal_threshold:.2f}" in explained_text
+        assert f"Baseline Threshold: {res.baseline_threshold:.2f}" in explained_text
+        assert "Cost Difference (Savings)" in explained_text
+
+        # 5. Serialization and item access
+        d = res.to_dict()
+        assert d["optimal_threshold"] == res.optimal_threshold
+        assert d["optimal_cost"] == res.optimal_cost
+        assert d["baseline_threshold"] == res.baseline_threshold
+        assert d["baseline_cost"] == res.baseline_cost
+        assert d["cost_difference"] == res.cost_difference
+        assert d["explanation"] == res.explanation
+
+        # Item access for dictionary compatibility
+        assert res["optimal_threshold"] == res.optimal_threshold
+        assert res["cost_difference"] == res.cost_difference
+        assert res["chart_data"] is not None
+
+    def test_edge_case_optimal_equals_baseline(self) -> None:
+        """When baseline 0.50 is already the optimal threshold, cost difference is 0.0."""
+        # Symmetrical dataset where 0.50 perfectly splits classes
+        y_val = [0, 0, 0, 1, 1, 1]
+        probs = [0.10, 0.20, 0.30, 0.70, 0.80, 0.90]
+
+        res = choose_threshold(y_true=y_val, probabilities=probs, threshold_grid=[0.0, 0.50, 1.0])
+
+        assert res.baseline_cost == pytest.approx(0.0)
+        assert res.min_cost == pytest.approx(0.0)
+        assert res.cost_difference == pytest.approx(0.0)
+        assert res.cost_savings == pytest.approx(0.0)
+        assert res.cost_reduction_pct == pytest.approx(0.0)
+        assert res.is_optimal_better_or_equal is True
+
+    def test_edge_case_imbalanced_high_fn_cost_large_savings(self) -> None:
+        """Under high FN penalty, cost-optimal threshold shifts low, generating significant savings vs 0.50."""
+        # 10 machines: 2 failures with moderate probabilities (0.35, 0.45) that 0.50 would miss!
+        y_val = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1]
+        probs = [0.05, 0.08, 0.12, 0.15, 0.20, 0.22, 0.28, 0.30, 0.35, 0.45]
+
+        # Heavy FN penalty: missing a failure costs 100.0, false alarm costs 1.0
+        custom_costs = CostConfig(false_negative_cost=100.0, false_positive_cost=1.0)
+        res = choose_threshold(y_true=y_val, probabilities=probs, costs=custom_costs)
+
+        # Baseline 0.50 misses both failures: FN=2 -> baseline cost = 200.0
+        assert res.baseline_cost == pytest.approx(200.0)
+        assert res.baseline_confusion_matrix["fn"] == 2
+
+        # Optimal threshold must be <= 0.35 to catch both failures
+        assert res.optimal_threshold <= 0.35
+        # Optimal cost is much lower than baseline 200.0
+        assert res.optimal_cost < res.baseline_cost
+        assert res.cost_difference > 0.0
+        assert res.cost_reduction_pct > 0.0
+        assert res.is_optimal_better_or_equal is True
+

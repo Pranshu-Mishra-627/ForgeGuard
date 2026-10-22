@@ -22,7 +22,7 @@ Decision Rules:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -42,6 +42,8 @@ class ScheduleResult:
         selection_reasons: Mapping from machine identifier to explicit decision explanation string.
         schedule_table: Complete pandas DataFrame containing all machines, probabilities, alerts,
                         priority scores, dispatch selections, and reasons.
+        unalerted_machines: List of machine identifiers that did not trigger an alert.
+        audit_summary: Structured dictionary summarizing capacity, costs, counts, and threshold.
     """
 
     selected_machines: list[Any]
@@ -49,6 +51,8 @@ class ScheduleResult:
     alert_status: dict[Any, bool]
     selection_reasons: dict[Any, str]
     schedule_table: pd.DataFrame
+    unalerted_machines: list[Any] = field(default_factory=list)
+    audit_summary: dict[str, Any] = field(default_factory=dict)
 
     @property
     def table(self) -> pd.DataFrame:
@@ -65,9 +69,11 @@ class ScheduleResult:
         return {
             "selected_machines": self.selected_machines,
             "deferred_machines": self.deferred_machines,
+            "unalerted_machines": self.unalerted_machines,
             "alert_status": self.alert_status,
             "selection_reasons": self.selection_reasons,
             "schedule_table": self.schedule_table,
+            "audit_summary": self.audit_summary,
         }
 
     def __getitem__(self, key: Any) -> Any:
@@ -81,10 +87,14 @@ class ScheduleResult:
             self.alert_status,
             self.selection_reasons,
             self.schedule_table,
+            self.unalerted_machines,
+            self.audit_summary,
         )
         return fields[key]
 
     def __iter__(self):
+        # 5 items for backward compatibility:
+        # sel, defr, alerts, reasons, tbl = plan_shift(...)
         return iter((
             self.selected_machines,
             self.deferred_machines,
@@ -321,10 +331,31 @@ def plan_shift(
         index=df.index,
     )
 
+    # Compile unalerted machines list (clearly distinguishing all three categories)
+    unalerted_machines = [id_series.iloc[i] for i in range(n_machines) if not bool(alerts[i])]
+
+    # Compact audit summary for operations and Person 3 dashboard
+    audit_summary = {
+        "operational_threshold": threshold_val,
+        "technician_slots": slots_int,
+        "cost_assumptions": {
+            "false_negative_cost": fn_cost,
+            "false_positive_cost": float(cost_cfg.false_positive_cost),
+        },
+        "total_machines": n_machines,
+        "selected_count": len(selected_machines),
+        "deferred_count": len(deferred_machines),
+        "unalerted_count": len(unalerted_machines),
+        "capacity_utilized": len(selected_machines),
+        "capacity_remaining": max(0, slots_int - len(selected_machines)),
+    }
+
     return ScheduleResult(
         selected_machines=selected_machines,
         deferred_machines=deferred_machines,
         alert_status=alert_status_dict,
         selection_reasons=reasons_dict,
         schedule_table=result_table,
+        unalerted_machines=unalerted_machines,
+        audit_summary=audit_summary,
     )
