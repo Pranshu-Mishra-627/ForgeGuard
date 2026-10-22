@@ -383,9 +383,18 @@ class TestPipelineIntegration:
         assert res.combined_table["service_assignment"].tolist() == [True, False]
 
     def test_missing_predict_machines_informative_error(
-        self, sample_telemetry_df: pd.DataFrame
+        self, sample_telemetry_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Clear error when predict_machines is not provided and not on PYTHONPATH."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if "ml" in name or "predict" in name:
+                raise ImportError(f"No module named '{name}'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="predict_machines.*not found"):
             resolve_predict_machines(predict_fn=None)
 

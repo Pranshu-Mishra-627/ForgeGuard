@@ -1,0 +1,174 @@
+{
+  "project": "ForgeGuard",
+  "problem_statement": "PS 2.1: Maintenance Shift Planner",
+  "dataset": {
+    "name": "AI4I 2020 Predictive Maintenance Dataset",
+    "source": "UCI Machine Learning Repository",
+    "url": "https://archive.ics.uci.edu/dataset/601/ai4i+2020+predictive+maintenance+dataset",
+    "total_samples": 10000,
+    "total_failures": 339,
+    "failure_rate": 0.0339,
+    "class_imbalance_ratio": 28.5,
+    "features_raw": [
+      "Type",
+      "Air temperature [K]",
+      "Process temperature [K]",
+      "Rotational speed [rpm]",
+      "Torque [Nm]",
+      "Tool wear [min]"
+    ],
+    "features_engineered": [
+      "Temp difference [K]",
+      "Power [W]",
+      "Overstrain [min*Nm]"
+    ],
+    "excluded_columns": [
+      "UDI",
+      "Product ID",
+      "Target leakage columns"
+    ],
+    "synthetic_data_disclosure": "AI4I 2020 is a synthetic benchmark dataset generated from physical machine models. While sensor dynamics reflect real physical relationships, performance on synthetic telemetry does not guarantee identical real-world industrial plant performance."
+  },
+  "training_configuration": {
+    "random_seed": 42,
+    "splits": {
+      "train": 7000,
+      "val": 1500,
+      "test": 1500
+    },
+    "stratified_by": "Machine failure",
+    "cost_model": {
+      "cost_false_negative": 20.0,
+      "cost_false_positive": 1.0,
+      "ratio": 20.0
+    }
+  },
+  "model_comparison": {
+    "baseline_logistic_regression": {
+      "val_roc_auc": 0.9048,
+      "val_pr_auc": 0.3561
+    },
+    "primary_random_forest": {
+      "val_roc_auc": 0.9893,
+      "val_pr_auc": 0.8573
+    }
+  },
+  "threshold_selection": {
+    "method": "Validation Cost Curve Minimization",
+    "cost_optimal_threshold": 0.27,
+    "validation_optimal_cost": 113.0,
+    "validation_default_cost": 190.0,
+    "validation_cost_reduction_pct": 40.53
+  },
+  "held_out_test_evaluation": {
+    "roc_auc": 0.9858,
+    "pr_auc": 0.8875,
+    "at_optimal_threshold": {
+      "threshold": 0.27,
+      "precision": 0.4592,
+      "recall": 0.8824,
+      "f1_score": 0.604,
+      "confusion_matrix": {
+        "tn": 1396,
+        "fp": 53,
+        "fn": 6,
+        "tp": 45
+      },
+      "total_cost": 173.0
+    },
+    "at_default_threshold": {
+      "threshold": 0.5,
+      "confusion_matrix": {
+        "tn": 1437,
+        "fp": 12,
+        "fn": 9,
+        "tp": 42
+      },
+      "total_cost": 192.0
+    },
+    "failure_mode_diagnostics": {
+      "TWF": {
+        "support": 8,
+        "precision": 0.0385,
+        "recall": 0.875,
+        "f1": 0.0737
+      },
+      "HDF": {
+        "support": 18,
+        "precision": 0.1513,
+        "recall": 1.0,
+        "f1": 0.2628
+      },
+      "PWF": {
+        "support": 13,
+        "precision": 0.2889,
+        "recall": 1.0,
+        "f1": 0.4483
+      },
+      "OSF": {
+        "support": 15,
+        "precision": 0.1974,
+        "recall": 1.0,
+        "f1": 0.3297
+      },
+      "RNF": {
+        "support": 2,
+        "precision": 0.0013,
+        "recall": 0.5,
+        "f1": 0.0026
+      }
+    }
+  },
+  "global_feature_importances": [
+    {
+      "feature": "Rotational speed [rpm]",
+      "importance": 0.2144
+    },
+    {
+      "feature": "Torque [Nm]",
+      "importance": 0.1883
+    },
+    {
+      "feature": "Power [W]",
+      "importance": 0.1815
+    },
+    {
+      "feature": "Tool wear [min]",
+      "importance": 0.1371
+    },
+    {
+      "feature": "Overstrain [min*Nm]",
+      "importance": 0.1108
+    },
+    {
+      "feature": "Temp difference [K]",
+      "importance": 0.0837
+    },
+    {
+      "feature": "Air temperature [K]",
+      "importance": 0.0465
+    },
+    {
+      "feature": "Process temperature [K]",
+      "importance": 0.0272
+    },
+    {
+      "feature": "Type_M",
+      "importance": 0.0045
+    },
+    {
+      "feature": "Type_L",
+      "importance": 0.004
+    },
+    {
+      "feature": "Type_H",
+      "importance": 0.0021
+    }
+  ],
+  "known_limitations": [
+    "AI4I 2020 dataset is synthetic; field telemetry requires calibration.",
+    "RNF (Random Failures) is inherently unpredictable (random noise injection in AI4I).",
+    "TWF (Tool Wear Failure) has limited positive support (under 50 total samples in dataset).",
+    "Failure modes can overlap: multiple modes may be triggered simultaneously on high-stress machines."
+  ]
+}

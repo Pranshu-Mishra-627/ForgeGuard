@@ -747,6 +747,10 @@ def plan_multi_shift(
         ]
 
     assignments_df = pd.DataFrame(table_data)
+    if "assigned_shift" in assignments_df.columns:
+        assignments_df["assigned_shift"] = assignments_df["assigned_shift"].astype(object).where(
+            assignments_df["assigned_shift"].notna(), None
+        )
 
     # 17. Executive Audit Summary
     total_capacity = sum(s.capacity for s in normalized_shifts)
