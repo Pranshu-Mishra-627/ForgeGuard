@@ -11,20 +11,42 @@ This repository implements the **Decision Engine** for NexAI Hack 2026 Problem S
 ```
 ForgeGuard/
 ├── engine/
-│   ├── __init__.py           # Exports public API (plan_shift, choose_threshold, calculate_business_impact, CostConfig)
+│   ├── __init__.py           # Exports public API (plan_shift, plan_multi_shift, evaluate_preemption, choose_threshold, calculate_business_impact, evaluate_deferred_risk, evaluate_guardrails, app, api)
+│   ├── api.py                # FastAPI HTTP application and REST endpoints for live simulation
+│   ├── prediction_service.py # Single and batch prediction adapters for Person 1 ML integration
+│   ├── simulation.py         # Live simulation state manager and pull-based event logger
+│   ├── preemption.py         # Preemptive maintenance scheduling, safe interruption & reschedule management
+│   ├── PREEMPTION.md         # Dedicated documentation for Preemptive Maintenance Scheduling
+│   ├── safety_assessment.py  # Data-driven equipment safety rules, telemetry validation & uncertainty handling
+│   ├── policy_guardrails.py  # Maintenance policy guardrails, mandatory review & deferral compliance
+│   ├── POLICY_GUARDRAILS.md  # Dedicated documentation for Maintenance Policy Guardrails
+│   ├── multi_shift_scheduler.py # Multi-shift technician planning, carry-forward deferrals & utilization
+│   ├── MULTI_SHIFT.md        # Dedicated documentation for Multi-Shift Maintenance Planner
 │   ├── business_impact.py    # Cost savings, confusion count impact & executive monetary projections
 │   ├── BUSINESS_IMPACT.md    # Dedicated documentation for Cost Savings & Business Impact feature
+│   ├── deferred_risk.py      # Deferred-machine risk ranking, risk tiers & follow-up escalation
+│   ├── DEFERRED_RISK.md      # Dedicated documentation for Deferred-Machine Risk Management
+│   ├── file_utils.py         # Dynamic file and format loading utilities
 │   ├── cost_model.py         # Cost parameter configuration and evaluation
 │   ├── threshold.py          # Validation-based threshold grid search & cost curve calculation
 │   ├── scheduler.py          # Alert filtering, priority scoring, and capacity-constrained dispatching
 │   └── pipeline.py           # End-to-end integration with Person 1's ML predictions
+├── configs/                  # Externalized JSON configuration files
 ├── tests/
 │   ├── __init__.py
+│   ├── test_api.py           # Integration tests for FastAPI endpoints, error handling, and simulation
+│   ├── test_safety_assessment.py # Unit tests for data-driven safety checks, stale/missing data & priority separation
+│   ├── test_preemption.py    # Unit tests for preemptive scheduling, invariants, and guardrail integration
+│   ├── test_policy_guardrails.py # Unit tests for policy guardrails, review rules, and deferral limits
+│   ├── test_multi_shift.py   # Unit tests for multi-shift planning, carry-forward, and utilization
 │   ├── test_business_impact.py # Unit tests for cost savings, monetary conversion, and business impact
+│   ├── test_deferred_risk.py # Unit tests for deferred risk ranking, risk tiers, and escalation
+│   ├── test_file_loading.py  # Tests for dynamic external configuration loading
 │   ├── test_cost_model.py    # Unit tests for cost model and threshold optimization
 │   ├── test_scheduler.py     # Unit tests for scheduler, capacity constraints, and edge cases
 │   ├── test_integration.py   # Integration tests with ML outputs
 │   └── test_pipeline_integration.py # Full pipeline integration tests
+├── API_REFERENCE.md          # Complete API documentation, schemas, scheduling data, and cost breakdown
 └── README.md
 ```
 

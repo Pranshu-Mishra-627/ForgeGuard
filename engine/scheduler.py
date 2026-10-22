@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -63,6 +64,101 @@ class ScheduleResult:
     def result_table(self) -> pd.DataFrame:
         """Alias for schedule_table."""
         return self.schedule_table
+
+    @property
+    def costs(self) -> CostConfig | None:
+        """CostConfig used during shift planning."""
+        if "costs" in self.audit_summary and isinstance(self.audit_summary["costs"], CostConfig):
+            return self.audit_summary["costs"]
+        if "cost_assumptions" in self.audit_summary:
+            assumptions = self.audit_summary["cost_assumptions"]
+            return CostConfig(
+                false_negative_cost=float(assumptions.get("false_negative_cost", 20.0)),
+                false_positive_cost=float(assumptions.get("false_positive_cost", 1.0)),
+            )
+        return None
+
+    def evaluate_deferred_risk(self, config: Any = None) -> Any:
+        """Evaluates operational risk and follow-up recommendations for deferred machines."""
+        from engine.deferred_risk import evaluate_deferred_risk
+
+        return evaluate_deferred_risk(self, config=config)
+
+    @property
+    def deferred_risk(self) -> Any:
+        """DeferredRiskResult evaluating deferred machines under default risk tier rules."""
+        return self.evaluate_deferred_risk()
+
+    def plan_multi_shift(self, shifts: Any, **kwargs: Any) -> Any:
+        """Allocates operational alerts across sequential shifts with carry-forward deferrals."""
+        from engine.multi_shift_scheduler import plan_multi_shift
+
+        return plan_multi_shift(self, shifts=shifts, **kwargs)
+
+    def evaluate_guardrails(self, config: Any = None) -> Any:
+        """Evaluates maintenance policy guardrails and compliance for scheduled fleet."""
+        from engine.policy_guardrails import evaluate_guardrails
+
+        return evaluate_guardrails(self, config=config)
+
+    @property
+    def guardrails(self) -> Any:
+        """PolicyGuardrailResult evaluating fleet under default maintenance guardrails."""
+        return self.evaluate_guardrails()
+
+    def evaluate_preemption(
+        self,
+        incoming_job: Any,
+        current_machine_id: Any = None,
+        technician_id: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Evaluates whether to preempt an active dispatch with an urgent incoming job."""
+        from engine.preemption import (
+            MaintenanceJob,
+            PreemptionResult,
+            STATUS_NO_PREEMPTION,
+            _coerce_to_job,
+            evaluate_preemption,
+        )
+
+        inc = _coerce_to_job(incoming_job, "INC")
+        target_mid = current_machine_id or (self.selected_machines[0] if self.selected_machines else None)
+        if target_mid is None:
+            return PreemptionResult(
+                preemption_considered=False,
+                preemption_executed=False,
+                requires_human_approval=False,
+                technician_id=technician_id,
+                interrupted_job_id=None,
+                incoming_job_id=inc.job_id,
+                current_priority_score=None,
+                incoming_priority_score=inc.priority_score,
+                decision_reason="No active machine assignments exist in ScheduleResult to preempt.",
+                interrupted_job_status=None,
+                recommended_action="Direct technician dispatch without preemption.",
+                status=STATUS_NO_PREEMPTION,
+                interrupted_job=None,
+                incoming_job=inc,
+            )
+
+        cur_rows = self.schedule_table[self.schedule_table["machine_id"] == target_mid]
+        if cur_rows.empty:
+            raise KeyError(f"Machine '{target_mid}' is not found in schedule table.")
+        cur_row = cur_rows.iloc[0]
+
+        cur_job = MaintenanceJob(
+            job_id=f"JOB-{target_mid}",
+            machine_id=target_mid,
+            priority_score=float(cur_row["priority_score"]),
+            failure_probability=(
+                float(cur_row["failure_probability"])
+                if "failure_probability" in cur_row and pd.notna(cur_row["failure_probability"])
+                else None
+            ),
+            technician_id=technician_id or "TECH-01",
+        )
+        return evaluate_preemption(cur_job, inc, technician_id=technician_id, **kwargs)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert schedule result to dictionary representation."""
@@ -128,10 +224,10 @@ def _resolve_id_column(df: pd.DataFrame, id_column: str | None) -> str:
 
 
 def plan_shift(
-    df: pd.DataFrame,
-    probabilities: Iterable[float] | np.ndarray | pd.Series | str | None,
-    slots: int,
-    threshold: float,
+    df: pd.DataFrame | str | Path,
+    probabilities: Iterable[float] | np.ndarray | pd.Series | str | None = None,
+    slots: int = 3,
+    threshold: float = 0.50,
     costs: CostConfig | Mapping[str, Any] | None = None,
     id_column: str | None = None,
 ) -> ScheduleResult:
@@ -161,7 +257,14 @@ def plan_shift(
             slots is negative, or probabilities/thresholds are outside [0.0, 1.0] or non-finite.
     """
     # 1. Validate DataFrame
-    if not isinstance(df, pd.DataFrame):
+    if isinstance(df, Path) or (
+        isinstance(df, str)
+        and (Path(df).is_file() or any(df.lower().endswith(ext) for ext in (".csv", ".json", ".parquet", ".pq")))
+    ):
+        from engine.file_utils import load_dataframe_or_path
+
+        df = load_dataframe_or_path(df)
+    elif not isinstance(df, pd.DataFrame):
         raise TypeError(f"df must be a pandas DataFrame, got {type(df).__name__}.")
 
     n_machines = len(df)
@@ -338,6 +441,7 @@ def plan_shift(
     audit_summary = {
         "operational_threshold": threshold_val,
         "technician_slots": slots_int,
+        "costs": cost_cfg,
         "cost_assumptions": {
             "false_negative_cost": fn_cost,
             "false_positive_cost": float(cost_cfg.false_positive_cost),

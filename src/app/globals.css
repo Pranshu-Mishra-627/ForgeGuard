@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-main: #F7F6F2;
+  --bg-surface: #FFFFFF;
+  --bg-surface-raised: #FFFFFF;
+  --bg-surface-hover: #F4F2EC;
+  --bg-surface-subtle: #FAF9F5;
+  --border-subtle: #EFECE5;
+  --border-normal: #E7E5DE;
+  --border-strong: #D8D4CA;
+  --text-primary: #252923;
+  --text-secondary: #74766F;
+  --text-muted: #9B9C94;
+  --accent-forest: #536B56;
+  --accent-subtle: #E9EEE7;
+  --accent-terracotta: #B97857;
+  --status-critical: #B64A38;
+  --status-warning: #C58528;
+  --status-healthy: #536B56;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-size: 15px;
+  min-height: 100vh;
+}
+
+/* Tabular numerals for industrial metrics, percentages, costs */
+.tabular-nums,
+.font-mono {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Subtle, clean warm scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F7F6F2;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8D4CA;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C4BFB4;
+}
+
+/* Accessible focus ring with muted forest green */
+:focus-visible {
+  outline: 2px solid var(--accent-forest);
+  outline-offset: 1px;
+}
+
+/* Support reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Industrial component surfaces: clean, flat with hairline border and almost imperceptible shadow */
+.panel {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-normal);
+  border-radius: 6px;
+}
+
+.panel-subtle {
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-normal);
+  border-radius: 6px;
+}
+
+/* Eyebrow and metadata labels */
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}

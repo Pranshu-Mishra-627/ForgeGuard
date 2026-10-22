@@ -23,3 +23,12 @@ ENV/
 .DS_Store
 Thumbs.db
 *.zip
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts

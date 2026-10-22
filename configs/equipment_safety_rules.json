@@ -1,0 +1,35 @@
+{
+  "equipment_type": "CNC_MILL",
+  "required_signals": [
+    "vibration_rms",
+    "temperature_c"
+  ],
+  "max_telemetry_age_seconds": 300.0,
+  "max_signal_discrepancy": {
+    "vibration_rms": 1.0,
+    "temperature_c": 5.0
+  },
+  "allow_unverified_interruption": false,
+  "rules": [
+    {
+      "rule_id": "SAFE_TEMP_MAX",
+      "signal_name": "temperature_c",
+      "max_value": 75.0,
+      "min_value": null,
+      "allowed_values": null,
+      "disallowed_values": null,
+      "required": true,
+      "description": "Spindle/bearing temperature must be below 75.0 C for safe job interruption."
+    },
+    {
+      "rule_id": "SAFE_VIB_MAX",
+      "signal_name": "vibration_rms",
+      "max_value": 3.5,
+      "min_value": null,
+      "allowed_values": null,
+      "disallowed_values": null,
+      "required": true,
+      "description": "Vibration RMS must be below 3.5 mm/s to ensure mechanical stability."
+    }
+  ]
+}
